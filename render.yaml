@@ -4,6 +4,10 @@ services:
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
+    healthCheckPath: /api/health
+    # Run migrations as a separate one-shot deploy step so two instances
+    # never race on ALTER TABLE.
+    preDeployCommand: node dist/models/runMigrations.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -20,15 +24,21 @@ services:
       - key: VISION_PROVIDER
         value: zai
       - key: CORS_ORIGIN
-        value: https://pfms.onrender.com
+        value: https://pfms-frontend.onrender.com
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
-        value: 7d
+        value: 15m
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 30d
       - key: UPLOAD_DIR
         value: /opt/render/project/src/uploads
       - key: MAX_FILE_SIZE_MB
         value: 20
+      - key: RUN_MIGRATIONS_ON_BOOT
+        value: "false"
+      - key: SCANS_PER_USER_PER_DAY
+        value: "50"
 
   - type: web
     name: pfms-frontend

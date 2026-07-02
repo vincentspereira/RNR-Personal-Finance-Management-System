@@ -30,35 +30,47 @@ describe('budgetService', () => {
   });
 
   describe('createBudget', () => {
-    it('creates a budget', async () => {
-      queryMock.mockResolvedValue({ rows: [mockBudget] });
+    it('creates a budget after verifying category ownership', async () => {
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'cat-1' }] }) // validateCategoryExists
+        .mockResolvedValueOnce({ rows: [mockBudget] });
       const result = await budgetService.createBudget(userId, {
         category_id: 'cat-1', amount: 500, period: 'monthly', start_date: '2026-01-01',
       });
       expect(result).toEqual(mockBudget);
-      expect(queryMock).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO budgets'),
-        [userId, 'cat-1', 500, 'monthly', '2026-01-01', null]
-      );
+      const insertCall = queryMock.mock.calls[1];
+      expect(insertCall[0]).toMatch(/INSERT INTO budgets/);
+      expect(insertCall[1]).toEqual([userId, 'cat-1', 500, 'monthly', '2026-01-01', null]);
     });
 
     it('passes end_date when provided', async () => {
-      queryMock.mockResolvedValue({ rows: [mockBudget] });
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'cat-1' }] })
+        .mockResolvedValueOnce({ rows: [mockBudget] });
       await budgetService.createBudget(userId, {
         category_id: 'cat-1', amount: 500, period: 'yearly',
         start_date: '2026-01-01', end_date: '2026-12-31',
       });
-      const params = queryMock.mock.calls[0][1];
+      const params = queryMock.mock.calls[1][1];
       expect(params[5]).toBe('2026-12-31');
     });
 
     it('passes null for end_date when omitted', async () => {
-      queryMock.mockResolvedValue({ rows: [mockBudget] });
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'cat-1' }] })
+        .mockResolvedValueOnce({ rows: [mockBudget] });
       await budgetService.createBudget(userId, {
         category_id: 'cat-1', amount: 100, period: 'weekly', start_date: '2026-01-01',
       });
-      const params = queryMock.mock.calls[0][1];
+      const params = queryMock.mock.calls[1][1];
       expect(params[5]).toBeNull();
+    });
+
+    it('refuses to create against a category the user does not own', async () => {
+      queryMock.mockResolvedValueOnce({ rows: [] });
+      await expect(budgetService.createBudget(userId, {
+        category_id: 'foreign', amount: 100, period: 'monthly', start_date: '2026-01-01',
+      })).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 

@@ -1,5 +1,5 @@
 import { query, getClient } from '../db';
-import { paginate, PaginatedResult } from '../utils/validators';
+import { paginate, PaginatedResult, validateAccountExists, validateCategoryExists } from '../utils/validators';
 
 export interface CreateTransactionInput {
   account_id: string;
@@ -113,6 +113,15 @@ export async function getTransaction(id: string, userId: string) {
 }
 
 export async function createTransaction(userId: string, input: CreateTransactionInput) {
+  // P0-3: enforce ownership of referenced account/category at write time
+  if (!input.account_id) {
+    throw Object.assign(new Error('account_id is required'), { statusCode: 400 });
+  }
+  await validateAccountExists(input.account_id, userId);
+  if (input.category_id) {
+    await validateCategoryExists(input.category_id, userId);
+  }
+
   const result = await query(
     `INSERT INTO transactions (user_id, account_id, category_id, type, amount, currency, description,
      merchant_name, transaction_date, notes, tags, is_recurring, recurrence_pattern, source, scan_id)
@@ -172,11 +181,37 @@ export async function deleteTransaction(id: string, userId: string) {
 }
 
 export async function bulkCreateTransactions(userId: string, inputs: CreateTransactionInput[]) {
+  // P0-3: validate ownership of every referenced account/category up-front
+  const accountIds = Array.from(new Set(inputs.map(i => i.account_id).filter(Boolean)));
+  if (accountIds.length > 0) {
+    const ownership = await query(
+      'SELECT id FROM accounts WHERE id = ANY($1) AND user_id = $2 AND is_archived = false',
+      [accountIds, userId]
+    );
+    const owned = new Set(ownership.rows.map((r: any) => r.id));
+    const unowned = accountIds.filter(id => !owned.has(id));
+    if (unowned.length > 0) {
+      throw Object.assign(new Error(`Account(s) not found: ${unowned.join(', ')}`), { statusCode: 404 });
+    }
+  }
+  const categoryIds = Array.from(new Set(inputs.map(i => i.category_id).filter(Boolean) as string[]));
+  if (categoryIds.length > 0) {
+    const ownership = await query(
+      'SELECT id FROM categories WHERE id = ANY($1) AND (user_id = $2 OR user_id IS NULL OR is_system = true)',
+      [categoryIds, userId]
+    );
+    const owned = new Set(ownership.rows.map((r: any) => r.id));
+    const unowned = categoryIds.filter(id => !owned.has(id));
+    if (unowned.length > 0) {
+      throw Object.assign(new Error(`Category(ies) not found: ${unowned.join(', ')}`), { statusCode: 404 });
+    }
+  }
+
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    const created = [];
-    const skipped = [];
+    const created: any[] = [];
+    const skipped: CreateTransactionInput[] = [];
 
     // Collect import hashes for batch duplicate check
     const hashes = inputs.filter(i => i.import_hash).map(i => i.import_hash!);
@@ -213,7 +248,7 @@ export async function bulkCreateTransactions(userId: string, inputs: CreateTrans
       created.push(result.rows[0]);
     }
     await client.query('COMMIT');
-    return created;
+    return { created, skipped };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

@@ -2,12 +2,12 @@ import { runMigrations } from './migrations';
 import { pool } from '../db';
 
 runMigrations()
-  .then(() => {
+  .then(async () => {
     console.log('Migration script finished.');
-    pool.end();
+    await pool.end();
   })
-  .catch((err) => {
+  .catch(async (err) => {
     console.error('Migration failed:', err);
-    pool.end();
+    await pool.end().catch(() => undefined);
     process.exit(1);
   });

@@ -67,11 +67,21 @@ describe('categoryService', () => {
       expect(params[3]).toBe('#3b82f6');
     });
 
-    it('passes parent_id for subcategories', async () => {
-      queryMock.mockResolvedValue({ rows: [{ id: 'x' }] });
+    it('passes parent_id for subcategories after verifying parent ownership', async () => {
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'cat-1' }] }) // validateCategoryExists(parent)
+        .mockResolvedValueOnce({ rows: [{ id: 'x' }] });
       await categoryService.createCategory(userId, { name: 'Sub', type: 'expense', parent_id: 'cat-1' });
-      const params = queryMock.mock.calls[0][1];
-      expect(params[5]).toBe('cat-1');
+      const insertCall = queryMock.mock.calls[1];
+      expect(insertCall[0]).toMatch(/INSERT INTO categories/);
+      expect(insertCall[1][5]).toBe('cat-1');
+    });
+
+    it('rejects subcategories whose parent is not owned by the user', async () => {
+      queryMock.mockResolvedValueOnce({ rows: [] });
+      await expect(categoryService.createCategory(userId, {
+        name: 'Sub', type: 'expense', parent_id: 'foreign',
+      })).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 

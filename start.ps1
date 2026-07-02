@@ -1,81 +1,64 @@
-#!/bin/bash
-# Start PFMS locally without Docker (requires PostgreSQL running)
+# Start PFMS locally without Docker (Windows PowerShell)
+# Prerequisites: Node.js 20+, PostgreSQL 16+
 
-set -e
+$ErrorActionPreference = 'Stop'
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+Write-Host '=== PFMS Local Development Setup ===' -ForegroundColor Cyan
 
-echo "=== PFMS Local Development Setup ==="
-
-# Check for PostgreSQL
-if ! command -v psql &> /dev/null; then
-  echo "Error: PostgreSQL is not installed."
-  echo "Install it from: https://www.postgresql.org/download/"
+# Check Node
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+  Write-Error 'Node.js is not installed. Install from https://nodejs.org/'
   exit 1
-fi
+}
 
-# Check for Node.js
-if ! command -v node &> /dev/null; then
-  echo "Error: Node.js is not installed."
-  echo "Install it from: https://nodejs.org/"
-  exit 1
-fi
+# Check PostgreSQL
+if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+  Write-Warning 'psql not found in PATH. Ensure PostgreSQL is installed and accessible.'
+}
 
-# Create .env if it doesn't exist
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
-  cp "$SCRIPT_DIR/.env.example" "$SCRIPT_DIR/.env"
-  echo "Created .env from .env.example — edit it with your API keys"
-fi
+# Create .env if missing
+$EnvPath = Join-Path $ScriptDir '.env'
+$EnvExample = Join-Path $ScriptDir '.env.example'
+if (-not (Test-Path $EnvPath) -and (Test-Path $EnvExample)) {
+  Copy-Item $EnvExample $EnvPath
+  Write-Host 'Created .env from .env.example - edit it with your API keys' -ForegroundColor Yellow
+}
 
-# Set up database
-echo ""
-echo "Setting up database..."
-read -p "Create pfms database and user? (y/n) " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-  psql -U postgres -c "CREATE USER pfms WITH PASSWORD 'pfms_password';" 2>/dev/null || true
-  psql -U postgres -c "CREATE DATABASE pfms OWNER pfms;" 2>/dev/null || true
-  psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE pfms TO pfms;" 2>/dev/null || true
-  echo "Database 'pfms' created."
-fi
+# Optionally provision database
+$create = Read-Host 'Create local pfms database and user? (y/n)'
+if ($create -match '^[Yy]') {
+  & psql -U postgres -c "CREATE USER pfms WITH PASSWORD 'pfms_password';" 2>$null
+  & psql -U postgres -c "CREATE DATABASE pfms OWNER pfms;" 2>$null
+  & psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE pfms TO pfms;" 2>$null
+  Write-Host "Database 'pfms' provisioned." -ForegroundColor Green
+}
 
-# Install backend dependencies
-echo ""
-echo "Installing backend dependencies..."
-cd "$SCRIPT_DIR/backend"
+# Backend
+Push-Location (Join-Path $ScriptDir 'backend')
+Write-Host 'Installing backend dependencies...' -ForegroundColor Cyan
 npm install
-
-# Build backend
-echo "Building backend..."
+Write-Host 'Running migrations...' -ForegroundColor Cyan
+npm run migrate
+Write-Host 'Building backend...' -ForegroundColor Cyan
 npm run build
 
-# Start backend in background
-echo "Starting backend on port 5000..."
-DATABASE_URL="postgresql://pfms:pfms_password@localhost:5432/pfms" \
-  $(cd "$SCRIPT_DIR" && source .env 2>/dev/null; echo "DATABASE_URL=postgresql://pfms:pfms_password@localhost:5432/pfms") \
-  node dist/server.js &
-BACKEND_PID=$!
+Write-Host 'Starting backend on http://localhost:5000 ...' -ForegroundColor Green
+$env:DATABASE_URL = 'postgresql://pfms:pfms_password@localhost:5432/pfms'
+$Backend = Start-Process -FilePath node -ArgumentList 'dist/server.js' -PassThru -NoNewWindow
+Pop-Location
 
-# Wait for backend to start
-sleep 3
+Start-Sleep -Seconds 3
 
-# Install frontend dependencies
-echo ""
-echo "Installing frontend dependencies..."
-cd "$SCRIPT_DIR/frontend"
+# Frontend
+Push-Location (Join-Path $ScriptDir 'frontend')
+Write-Host 'Installing frontend dependencies...' -ForegroundColor Cyan
 npm install
+Write-Host 'Starting frontend dev server on http://localhost:5173 ...' -ForegroundColor Green
+npm run dev
+Pop-Location
 
-# Build frontend
-echo "Building frontend..."
-npm run build
-
-echo ""
-echo "=== PFMS is running! ==="
-echo "Backend:  http://localhost:5000"
-echo "Frontend: Run 'npm run dev' in frontend/ for dev server, or serve dist/ with any static server"
-echo ""
-echo "To start the frontend dev server:"
-echo "  cd frontend && npm run dev"
-echo ""
-echo "Press Ctrl+C to stop the backend"
-wait $BACKEND_PID
+# When the dev server exits, stop the backend too.
+if ($Backend -and -not $Backend.HasExited) {
+  Stop-Process -Id $Backend.Id -Force
+}

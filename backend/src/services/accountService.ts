@@ -1,13 +1,32 @@
 import { query } from '../db';
 
+/**
+ * Balance formula:
+ *   opening_balance
+ *   + sum(income on this account by this user)
+ *   - sum(expense on this account by this user)
+ *   + sum(transfer_in on this account by this user)     (when transfer destination = this account)
+ *   - sum(transfer_out on this account by this user)    (when transfer source = this account)
+ *
+ * We represent transfers as paired transactions (see services/transferService.ts).
+ * One row has type='transfer' with negative-style semantics on the source account,
+ * another row on the destination account, linked by transfer_group_id.
+ * For backwards compatibility, the balance treats `type='transfer'` rows as a
+ * directional movement: amount on source account counts as outflow, on destination
+ * as inflow. We disambiguate by the `transfer_direction` column ('out' or 'in').
+ */
 export async function listAccounts(userId: string) {
   const result = await query(`
     SELECT a.*,
-      COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) -
-      COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) +
-      a.opening_balance as current_balance
+      a.opening_balance
+      + COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0)
+      - COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0)
+      + COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.transfer_direction = 'in' THEN t.amount ELSE 0 END), 0)
+      - COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.transfer_direction = 'out' THEN t.amount ELSE 0 END), 0)
+        AS current_balance
     FROM accounts a
-    LEFT JOIN transactions t ON t.account_id = a.id
+    LEFT JOIN transactions t
+      ON t.account_id = a.id AND t.user_id = $1
     WHERE a.is_archived = false AND a.user_id = $1
     GROUP BY a.id
     ORDER BY a.name
@@ -18,11 +37,15 @@ export async function listAccounts(userId: string) {
 export async function getAccount(id: string, userId: string) {
   const result = await query(`
     SELECT a.*,
-      COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) -
-      COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) +
-      a.opening_balance as current_balance
+      a.opening_balance
+      + COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0)
+      - COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0)
+      + COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.transfer_direction = 'in' THEN t.amount ELSE 0 END), 0)
+      - COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.transfer_direction = 'out' THEN t.amount ELSE 0 END), 0)
+        AS current_balance
     FROM accounts a
-    LEFT JOIN transactions t ON t.account_id = a.id
+    LEFT JOIN transactions t
+      ON t.account_id = a.id AND t.user_id = $2
     WHERE a.id = $1 AND a.user_id = $2
     GROUP BY a.id
   `, [id, userId]);
@@ -53,7 +76,9 @@ export async function updateAccount(id: string, userId: string, data: {
   const params: any[] = [];
   let idx = 1;
 
-  for (const [key, value] of Object.entries(data)) {
+  const allowed = ['name', 'type', 'currency', 'opening_balance'];
+  for (const key of allowed) {
+    const value = (data as any)[key];
     if (value !== undefined) {
       fields.push(`${key} = $${idx++}`);
       params.push(value);
@@ -87,7 +112,9 @@ export async function getAccountBalanceHistory(id: string, userId: string, start
     WITH daily AS (
       SELECT transaction_date::date as date,
              SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) -
-             SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as daily_change
+             SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) +
+             SUM(CASE WHEN type = 'transfer' AND transfer_direction = 'in' THEN amount ELSE 0 END) -
+             SUM(CASE WHEN type = 'transfer' AND transfer_direction = 'out' THEN amount ELSE 0 END) as daily_change
       FROM transactions
       WHERE account_id = $1 AND user_id = $4 AND transaction_date BETWEEN $2 AND $3
       GROUP BY transaction_date

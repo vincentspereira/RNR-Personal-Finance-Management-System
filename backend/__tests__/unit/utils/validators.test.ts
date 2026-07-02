@@ -7,8 +7,20 @@ jest.mock('../../../src/middleware/errorHandler', () => ({
   },
 }));
 
-import { paginate, parsePagination, validateAccountExists, validateCategoryExists } from '../../../src/utils/validators';
+import {
+  paginate,
+  parsePagination,
+  validateAccountExists,
+  validateCategoryExists,
+  validateScanExists,
+  validateBudgetExists,
+  validateSavingsGoalExists,
+  clampInt,
+} from '../../../src/utils/validators';
 import { queryMock } from './../../unit/__mocks__/db';
+
+const userId = 'user-1';
+const otherUserId = 'user-2';
 
 describe('parsePagination', () => {
   it('parses page and limit from query', () => {
@@ -28,9 +40,7 @@ describe('parsePagination', () => {
 });
 
 describe('paginate', () => {
-  beforeEach(() => {
-    queryMock.mockReset();
-  });
+  beforeEach(() => queryMock.mockReset());
 
   it('paginates results correctly', async () => {
     queryMock
@@ -38,53 +48,32 @@ describe('paginate', () => {
       .mockResolvedValueOnce({ rows: [{ id: '1' }, { id: '2' }] });
 
     const result = await paginate('SELECT *', 'SELECT COUNT(*)', [], { page: 1, limit: 50 });
-
-    expect(result).toEqual({
-      rows: [{ id: '1' }, { id: '2' }],
-      total: 100,
-      page: 1,
-      limit: 50,
-      totalPages: 2,
-    });
+    expect(result).toEqual({ rows: [{ id: '1' }, { id: '2' }], total: 100, page: 1, limit: 50, totalPages: 2 });
   });
 
   it('defaults to page 1 and limit 50', async () => {
-    queryMock
-      .mockResolvedValueOnce({ rows: [{ count: '10' }] })
-      .mockResolvedValueOnce({ rows: [] });
-
+    queryMock.mockResolvedValueOnce({ rows: [{ count: '10' }] }).mockResolvedValueOnce({ rows: [] });
     const result = await paginate('SELECT *', 'SELECT COUNT(*)');
-
     expect(result.page).toBe(1);
     expect(result.limit).toBe(50);
     expect(result.totalPages).toBe(1);
   });
 
   it('clamps limit to max 100', async () => {
-    queryMock
-      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-      .mockResolvedValueOnce({ rows: [] });
-
+    queryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }).mockResolvedValueOnce({ rows: [] });
     const result = await paginate('SEL', 'SEL', [], { limit: 500 });
     expect(result.limit).toBe(100);
   });
 
   it('clamps page to min 1', async () => {
-    queryMock
-      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
-      .mockResolvedValueOnce({ rows: [] });
-
+    queryMock.mockResolvedValueOnce({ rows: [{ count: '0' }] }).mockResolvedValueOnce({ rows: [] });
     const result = await paginate('SEL', 'SEL', [], { page: -5 });
     expect(result.page).toBe(1);
   });
 
   it('passes params to both queries', async () => {
-    queryMock
-      .mockResolvedValueOnce({ rows: [{ count: '1' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'a' }] });
-
+    queryMock.mockResolvedValueOnce({ rows: [{ count: '1' }] }).mockResolvedValueOnce({ rows: [{ id: 'a' }] });
     await paginate('SELECT * WHERE x=$1', 'SELECT COUNT(*) WHERE x=$1', ['val']);
-
     expect(queryMock).toHaveBeenNthCalledWith(1, 'SELECT COUNT(*) WHERE x=$1', ['val']);
     expect(queryMock).toHaveBeenNthCalledWith(
       2,
@@ -94,30 +83,72 @@ describe('paginate', () => {
   });
 });
 
-describe('validateAccountExists', () => {
+describe('validateAccountExists (tenant-isolated)', () => {
   beforeEach(() => queryMock.mockReset());
 
-  it('does not throw when account exists', async () => {
+  it('does not throw when account exists for this user', async () => {
     queryMock.mockResolvedValue({ rows: [{ id: 'abc' }] });
-    await expect(validateAccountExists('abc')).resolves.toBeUndefined();
+    await expect(validateAccountExists('abc', userId)).resolves.toBeUndefined();
+    // SQL must include user_id predicate
+    expect(queryMock.mock.calls[0][0]).toMatch(/user_id\s*=\s*\$2/);
+    expect(queryMock.mock.calls[0][1]).toEqual(['abc', userId]);
   });
 
-  it('throws 404 when account not found', async () => {
+  it('throws 404 when account belongs to a different user (cross-tenant attempt)', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    await expect(validateAccountExists('missing')).rejects.toThrow('Account not found');
+    await expect(validateAccountExists('abc', otherUserId)).rejects.toMatchObject({
+      statusCode: 404,
+      message: 'Account not found',
+    });
+  });
+
+  it('throws 400 when missing userId', async () => {
+    await expect(validateAccountExists('abc', '' as any)).rejects.toMatchObject({ statusCode: 400 });
   });
 });
 
-describe('validateCategoryExists', () => {
+describe('validateCategoryExists (tenant-isolated)', () => {
   beforeEach(() => queryMock.mockReset());
 
-  it('does not throw when category exists', async () => {
-    queryMock.mockResolvedValue({ rows: [{ id: 'cat1' }] });
-    await expect(validateCategoryExists('cat1')).resolves.toBeUndefined();
+  it('accepts system categories (user_id NULL) for any user', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 'sys-cat' }] });
+    await expect(validateCategoryExists('sys-cat', userId)).resolves.toBeUndefined();
+    expect(queryMock.mock.calls[0][0]).toMatch(/is_system\s*=\s*true/);
   });
 
-  it('throws 404 when category not found', async () => {
+  it('throws 404 when category not visible to user', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    await expect(validateCategoryExists('missing')).rejects.toThrow('Category not found');
+    await expect(validateCategoryExists('missing', userId)).rejects.toMatchObject({ statusCode: 404 });
+  });
+});
+
+describe('validateScanExists / validateBudgetExists / validateSavingsGoalExists', () => {
+  beforeEach(() => queryMock.mockReset());
+
+  it.each([
+    ['scan', validateScanExists, 'Scan not found'],
+    ['budget', validateBudgetExists, 'Budget not found'],
+    ['goal', validateSavingsGoalExists, 'Savings goal not found'],
+  ])('throws 404 for cross-tenant access to %s', async (_label, fn, expected) => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await expect(fn('id', otherUserId)).rejects.toMatchObject({ statusCode: 404, message: expected });
+  });
+});
+
+describe('clampInt', () => {
+  it('clamps within [min,max]', () => {
+    expect(clampInt(5, 1, 10, 0)).toBe(5);
+    expect(clampInt(-100, 1, 10, 0)).toBe(1);
+    expect(clampInt(1e6, 1, 10, 0)).toBe(10);
+  });
+
+  it('falls back when not a finite number', () => {
+    expect(clampInt('abc', 1, 10, 7)).toBe(7);
+    expect(clampInt(NaN, 1, 10, 7)).toBe(7);
+    expect(clampInt(undefined, 1, 10, 7)).toBe(7);
+  });
+
+  it('truncates floats', () => {
+    expect(clampInt(3.9, 1, 10, 0)).toBe(3);
   });
 });

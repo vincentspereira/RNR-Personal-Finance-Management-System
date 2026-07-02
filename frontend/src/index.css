@@ -17,6 +17,10 @@
     --scrollbar-track: #1e293b;
     --scrollbar-thumb: #475569;
     --scrollbar-hover: #64748b;
+    --accent: #3b82f6;
+    --income: #22c55e;
+    --expense: #ef4444;
+    --modal-overlay: rgba(0,0,0,0.6);
   }
 
   /* Light theme */
@@ -33,12 +37,36 @@
     --scrollbar-track: #f1f5f9;
     --scrollbar-thumb: #cbd5e1;
     --scrollbar-hover: #94a3b8;
+    --accent: #2563eb;
+    --income: #16a34a;
+    --expense: #dc2626;
+    --modal-overlay: rgba(15, 23, 42, 0.4);
   }
 
   body {
     background-color: var(--bg-primary);
     color: var(--text-primary);
     font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  /* Accessibility: visible focus ring across all interactive controls */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Screen-reader-only utility (use class="sr-only") */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 
   ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -54,7 +82,9 @@
     @apply rounded-xl p-4;
   }
   .btn-primary {
-    @apply bg-accent hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors;
+    background-color: var(--accent);
+    color: #ffffff;
+    @apply px-4 py-2 rounded-lg font-medium transition-colors hover:opacity-90 focus:opacity-100;
   }
   .btn-secondary {
     background-color: var(--bg-tertiary);
@@ -62,7 +92,9 @@
     @apply hover:opacity-80 px-4 py-2 rounded-lg font-medium transition-colors;
   }
   .btn-danger {
-    @apply bg-expense hover:bg-red-600 text-white px-4 py-2 rounded-lg font-medium transition-colors;
+    background-color: var(--expense);
+    color: #ffffff;
+    @apply px-4 py-2 rounded-lg font-medium transition-colors hover:opacity-90;
   }
   .input {
     background-color: var(--bg-input);
@@ -77,6 +109,14 @@
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
   }
+
+  /* Themed token aliases (preferred for new code) */
+  .bg-primary    { background-color: var(--bg-primary); }
+  .bg-secondary  { background-color: var(--bg-secondary); }
+  .bg-tertiary   { background-color: var(--bg-tertiary); }
+  .text-primary  { color: var(--text-primary); }
+  .text-muted    { color: var(--text-muted); }
+  .border-default{ border-color: var(--border-primary); }
 }
 
 @media print {

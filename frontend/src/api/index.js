@@ -14,15 +14,20 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Dispatch a custom event on 401 so the auth hook can react (no hard redirect).
 api.interceptors.response.use(
   (res) => res.data,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('pfms_token');
-      window.location.href = '/login';
+      localStorage.removeItem('pfms_refresh_token');
+      window.dispatchEvent(new CustomEvent('pfms:auth:unauthorized'));
     }
     const message = err.response?.data?.error || err.message || 'Network error';
-    return Promise.reject(new Error(message));
+    const wrapped = new Error(message);
+    wrapped.status = err.response?.status;
+    wrapped.details = err.response?.data?.meta?.details;
+    return Promise.reject(wrapped);
   }
 );
 
@@ -30,7 +35,10 @@ api.interceptors.response.use(
 export const authApi = {
   register: (email, password, name) => api.post('/auth/register', { email, password, name }),
   login: (email, password) => api.post('/auth/login', { email, password }),
-  profile: (token) => api.get('/auth/profile', { headers: { Authorization: `Bearer ${token}` } }),
+  refresh: (refreshToken) => api.post('/auth/refresh', { refreshToken }),
+  logout: (refreshToken) => api.post('/auth/logout', { refreshToken }),
+  profile: (token) => api.get('/auth/profile', token ? { headers: { Authorization: `Bearer ${token}` } } : undefined),
+  changePassword: (oldPassword, newPassword) => api.post('/auth/change-password', { oldPassword, newPassword }),
 };
 
 // Transactions
@@ -41,7 +49,7 @@ export const transactionsApi = {
   update: (id, data) => api.put(`/transactions/${id}`, data),
   delete: (id) => api.delete(`/transactions/${id}`),
   bulkCreate: (transactions) => api.post('/transactions/bulk', { transactions }),
-  export: (params) => api.get('/transactions/export', { params, responseType: params.format === 'csv' ? 'blob' : 'json' }),
+  export: (params) => api.get('/transactions/export', { params, responseType: params?.format === 'csv' ? 'blob' : 'json' }),
   importPreview: (file) => {
     const formData = new FormData();
     formData.append('files', file);
@@ -50,6 +58,15 @@ export const transactionsApi = {
     });
   },
   importConfirm: (data) => api.post('/transactions/import/confirm', data),
+
+  // Transfers (paired, atomic)
+  createTransfer: (data) => api.post('/transactions/transfers', data),
+  deleteTransfer: (groupId) => api.delete(`/transactions/transfers/${groupId}`),
+
+  // Splits (one parent, many child line items)
+  createSplit: (data) => api.post('/transactions/splits', data),
+  getSplit: (id) => api.get(`/transactions/splits/${id}`),
+  deleteSplit: (id) => api.delete(`/transactions/splits/${id}`),
 };
 
 // Accounts
@@ -93,9 +110,11 @@ export const analyticsApi = {
   trends: (params) => api.get('/analytics/trends', { params }),
   topMerchants: (params) => api.get('/analytics/top-merchants', { params }),
   cashflow: (params) => api.get('/analytics/cashflow', { params }),
+  cashflowForecast: (params) => api.get('/analytics/cashflow-forecast', { params }),
   budgetVsActual: (params) => api.get('/analytics/budget-vs-actual', { params }),
   recurring: () => api.get('/analytics/recurring'),
   netWorth: () => api.get('/analytics/net-worth'),
+  netWorthHistory: (params) => api.get('/analytics/net-worth-history', { params }),
   budgetAlerts: () => api.get('/analytics/budget-alerts'),
 };
 

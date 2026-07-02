@@ -148,16 +148,23 @@ describe('transactionController', () => {
   });
 
   describe('bulkCreateTransactions', () => {
-    it('creates bulk transactions and returns 201', async () => {
+    it('creates bulk transactions and reports created vs skipped counts', async () => {
       const req: any = { body: { transactions: [{ type: 'expense', amount: 10 }] } , user: { id: 'test-user-id', email: 'test@test.com' } };
       const res = mockRes();
 
-      (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue([{ id: '1' }, { id: '2' }]);
+      (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue({
+        created: [{ id: '1' }, { id: '2' }],
+        skipped: [{ id: 'dup' }],
+      });
 
       await ctrl.bulkCreateTransactions(req, res, mockNext);
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ success: true, meta: { count: 2 } })
+        expect.objectContaining({
+          success: true,
+          data: [{ id: '1' }, { id: '2' }],
+          meta: { count: 2, skipped: 1, total: 3 },
+        })
       );
     });
   });
@@ -182,7 +189,7 @@ describe('transactionController', () => {
       ]);
 
       await ctrl.exportTransactions(req, res, mockNext);
-      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', expect.stringContaining('text/csv'));
       expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', expect.stringContaining('transactions.csv'));
       expect(res.send).toHaveBeenCalled();
     });

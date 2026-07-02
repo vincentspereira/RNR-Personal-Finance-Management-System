@@ -1,11 +1,12 @@
 import { query } from '../db';
+import { clampInt } from '../utils/validators';
 
 export async function getSummary(userId: string, startDate: string, endDate: string) {
   const result = await query(`
     SELECT
       COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as total_income,
       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as total_expense,
-      COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END), 0) as net,
+      COALESCE(SUM(CASE WHEN type = 'income' THEN amount WHEN type = 'expense' THEN -amount ELSE 0 END), 0) as net,
       COUNT(*) as transaction_count
     FROM transactions
     WHERE user_id = $1 AND transaction_date BETWEEN $2 AND $3
@@ -42,8 +43,21 @@ export async function getSummary(userId: string, startDate: string, endDate: str
   };
 }
 
+const ALLOWED_TXN_TYPES = new Set(['income', 'expense', 'transfer']);
+
 export async function getByCategory(userId: string, startDate: string, endDate: string, type?: string) {
-  const typeFilter = type ? `AND t.type = '${type}'` : '';
+  // P0-6: Use parameterised value, and whitelist enum values defensively
+  const params: any[] = [userId, startDate, endDate];
+  let typeFilter = '';
+  if (type) {
+    if (!ALLOWED_TXN_TYPES.has(type)) {
+      // Unknown type → empty result rather than throw, matches prior permissive behavior
+      return [];
+    }
+    params.push(type);
+    typeFilter = `AND t.type = $${params.length}`;
+  }
+
   const result = await query(`
     SELECT c.id, c.name, c.type, c.color, c.icon,
            SUM(t.amount) as total,
@@ -53,32 +67,37 @@ export async function getByCategory(userId: string, startDate: string, endDate: 
     WHERE t.user_id = $1 AND t.transaction_date BETWEEN $2 AND $3 ${typeFilter}
     GROUP BY c.id, c.name, c.type, c.color, c.icon
     ORDER BY total DESC
-  `, [userId, startDate, endDate]);
+  `, params);
   return result.rows;
 }
 
 export async function getTrends(userId: string, months: number = 12) {
+  // P0-7: clamp + parameterise
+  const m = clampInt(months, 1, 60, 12);
   const result = await query(`
     WITH months AS (
-      SELECT to_char(generate_series(
-        CURRENT_DATE - INTERVAL '${months - 1} months',
-        CURRENT_DATE,
-        INTERVAL '1 month'
-      ), 'YYYY-MM') as month
+      SELECT to_char(
+        generate_series(
+          (CURRENT_DATE - (($1::int - 1) * INTERVAL '1 month'))::date,
+          CURRENT_DATE,
+          INTERVAL '1 month'
+        ), 'YYYY-MM'
+      ) as month
     )
     SELECT m.month,
       COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) as income,
       COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) as expense,
-      COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE -t.amount END), 0) as net
+      COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount WHEN t.type = 'expense' THEN -t.amount ELSE 0 END), 0) as net
     FROM months m
-    LEFT JOIN transactions t ON to_char(t.transaction_date, 'YYYY-MM') = m.month AND t.user_id = $1
+    LEFT JOIN transactions t ON to_char(t.transaction_date, 'YYYY-MM') = m.month AND t.user_id = $2
     GROUP BY m.month
     ORDER BY m.month
-  `, [userId]);
+  `, [m, userId]);
   return result.rows;
 }
 
 export async function getTopMerchants(userId: string, startDate: string, endDate: string, limit: number = 10) {
+  const lim = clampInt(limit, 1, 100, 10);
   const result = await query(`
     SELECT merchant_name, COUNT(*) as transaction_count, SUM(amount) as total_spent
     FROM transactions
@@ -87,7 +106,7 @@ export async function getTopMerchants(userId: string, startDate: string, endDate
     GROUP BY merchant_name
     ORDER BY total_spent DESC
     LIMIT $4
-  `, [userId, startDate, endDate, limit]);
+  `, [userId, startDate, endDate, lim]);
   return result.rows;
 }
 
@@ -96,12 +115,66 @@ export async function getCashflow(userId: string, startDate: string, endDate: st
     SELECT transaction_date::date as date,
       SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
       SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense,
-      SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) as net
+      SUM(CASE WHEN type = 'income' THEN amount WHEN type = 'expense' THEN -amount ELSE 0 END) as net
     FROM transactions
     WHERE user_id = $1 AND transaction_date BETWEEN $2 AND $3
     GROUP BY transaction_date
     ORDER BY transaction_date
   `, [userId, startDate, endDate]);
+  return result.rows;
+}
+
+/**
+ * Cash-flow forecast for the next `daysAhead` days, based on detected recurring
+ * patterns + scheduled income. Optimistic: uses each pattern's avg_amount and
+ * next_predicted_date stepped by interval_days.
+ */
+export async function getCashflowForecast(userId: string, daysAhead: number = 90) {
+  const days = clampInt(daysAhead, 7, 365, 90);
+  const result = await query(`
+    WITH RECURSIVE projection AS (
+      SELECT
+        rp.id,
+        rp.description,
+        rp.merchant_name,
+        rp.avg_amount::numeric(15,2) AS amount,
+        rp.next_predicted_date AS date,
+        rp.interval_days,
+        c.type AS direction
+      FROM recurring_patterns rp
+      LEFT JOIN categories c ON rp.category_id = c.id
+      WHERE rp.user_id = $1
+        AND rp.is_active = true
+        AND rp.next_predicted_date IS NOT NULL
+        AND rp.interval_days IS NOT NULL
+        AND rp.next_predicted_date <= CURRENT_DATE + ($2::int) * INTERVAL '1 day'
+
+      UNION ALL
+
+      SELECT
+        p.id,
+        p.description,
+        p.merchant_name,
+        p.amount,
+        (p.date + p.interval_days * INTERVAL '1 day')::date,
+        p.interval_days,
+        p.direction
+      FROM projection p
+      WHERE (p.date + p.interval_days * INTERVAL '1 day')::date
+            <= CURRENT_DATE + ($2::int) * INTERVAL '1 day'
+    )
+    SELECT
+      date,
+      SUM(CASE WHEN direction = 'income' THEN amount ELSE 0 END) AS projected_income,
+      SUM(CASE WHEN direction = 'expense' THEN amount ELSE 0 END) AS projected_expense,
+      SUM(CASE WHEN direction = 'income' THEN amount
+               WHEN direction = 'expense' THEN -amount
+               ELSE 0 END) AS projected_net
+    FROM projection
+    WHERE date >= CURRENT_DATE
+    GROUP BY date
+    ORDER BY date
+  `, [userId, days]);
   return result.rows;
 }
 
@@ -127,15 +200,19 @@ export async function getBudgetVsActual(userId: string, startDate: string, endDa
 
 export async function getRecurring(userId: string) {
   const result = await query(`
-    SELECT description, merchant_name,
-           AVG(amount) as avg_amount,
-           COUNT(*) as occurrence_count,
-           MIN(transaction_date) as first_occurrence,
-           MAX(transaction_date) as last_occurrence,
-           mode() WITHIN GROUP (ORDER BY category_id) as category_id
+    SELECT
+      LOWER(TRIM(COALESCE(description, ''))) AS description_key,
+      LOWER(TRIM(COALESCE(merchant_name, ''))) AS merchant_key,
+      MAX(description) AS description,
+      MAX(merchant_name) AS merchant_name,
+      AVG(amount) AS avg_amount,
+      COUNT(*) AS occurrence_count,
+      MIN(transaction_date) AS first_occurrence,
+      MAX(transaction_date) AS last_occurrence,
+      mode() WITHIN GROUP (ORDER BY category_id) AS category_id
     FROM transactions
     WHERE user_id = $1 AND (is_recurring = true OR (description IS NOT NULL AND description != ''))
-    GROUP BY description, merchant_name
+    GROUP BY description_key, merchant_key
     HAVING COUNT(*) >= 2
     ORDER BY occurrence_count DESC
     LIMIT 20

@@ -8,7 +8,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "migrate": "ts-node src/models/runMigrations.ts",
+    "migrate:built": "node dist/models/runMigrations.js",
     "seed": "ts-node src/models/runSeeds.ts",
+    "seed:built": "node dist/models/runSeeds.js",
     "typecheck": "tsc --noEmit",
     "test": "jest --coverage --forceExit --detectOpenHandles",
     "test:watch": "jest --watch",
@@ -61,8 +63,11 @@
     "node-cache": "^5.1.2",
     "node-cron": "^3.0.3",
     "pg": "^8.13.1",
+    "pino": "^9.14.0",
+    "pino-http": "^10.3.0",
     "sharp": "^0.33.3",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

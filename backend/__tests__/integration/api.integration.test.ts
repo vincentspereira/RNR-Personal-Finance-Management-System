@@ -86,10 +86,23 @@ describe('Integration: Transaction API', () => {
 
     const res = await request(app)
       .post('/api/transactions')
-      .send({ account_id: 'a1', type: 'expense', amount: 100, transaction_date: '2026-01-01' });
+      .send({
+        account_id: '11111111-1111-1111-1111-111111111111',
+        type: 'expense',
+        amount: 100,
+        transaction_date: '2026-01-01',
+      });
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
+  });
+
+  it('POST /api/transactions rejects non-uuid account_id (zod validation)', async () => {
+    const res = await request(app)
+      .post('/api/transactions')
+      .send({ account_id: 'a1', type: 'expense', amount: 100, transaction_date: '2026-01-01' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
 
   it('GET /api/transactions/:id returns single transaction', async () => {
@@ -122,7 +135,10 @@ describe('Integration: Transaction API', () => {
   });
 
   it('POST /api/transactions/bulk creates multiple', async () => {
-    (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue([{ id: '1' }, { id: '2' }]);
+    (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue({
+      created: [{ id: '1' }, { id: '2' }],
+      skipped: [],
+    });
 
     const res = await request(app)
       .post('/api/transactions/bulk')
@@ -130,6 +146,7 @@ describe('Integration: Transaction API', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.meta.count).toBe(2);
+    expect(res.body.meta.skipped).toBe(0);
   });
 });
 
@@ -207,7 +224,12 @@ describe('Integration: Budget API', () => {
   it('POST /api/budgets creates budget', async () => {
     (budgetSvc.createBudget as jest.Mock).mockResolvedValue({ id: 'b1' });
 
-    const res = await request(app).post('/api/budgets').send({ category_id: 'c1', amount: 500, period: 'monthly', start_date: '2026-01-01' });
+    const res = await request(app).post('/api/budgets').send({
+      category_id: '22222222-2222-2222-2222-222222222222',
+      amount: 500,
+      period: 'monthly',
+      start_date: '2026-01-01',
+    });
     expect(res.status).toBe(201);
   });
 });

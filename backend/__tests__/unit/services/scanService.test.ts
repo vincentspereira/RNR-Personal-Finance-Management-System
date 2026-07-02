@@ -1,10 +1,9 @@
 jest.mock('../../../src/db', () => require('./../../unit/__mocks__/db'));
-jest.mock('@anthropic-ai/sdk', () => {
-  const mockCreate = jest.fn();
-  return jest.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
-  }));
-});
+const mockCallVision = jest.fn();
+jest.mock('../../../src/services/vision', () => ({
+  getVisionProvider: () => ({ name: 'zai', callVision: mockCallVision }),
+  _setVisionProviderForTest: jest.fn(),
+}));
 jest.mock('sharp', () => jest.fn().mockReturnValue({
   resize: jest.fn().mockReturnThis(),
   jpeg: jest.fn().mockReturnThis(),
@@ -16,11 +15,18 @@ jest.mock('fs', () => ({
 
 import * as scanService from '../../../src/services/scanService';
 import { queryMock, getClientMock, mockClient } from './../../unit/__mocks__/db';
-import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 
-const mockAnthropicInstance = new (Anthropic as any)();
-const mockCreate = mockAnthropicInstance.messages.create;
+// Backwards-compat alias for the previous test layout.
+const mockCreate = {
+  mockResolvedValueOnce: (v: any) => {
+    // The previous tests handed back { content: [{ type: 'text', text: '...' }] }
+    // The new adapter returns a string. Translate accordingly.
+    const text = v.content?.find?.((c: any) => c.type === 'text')?.text ?? '';
+    mockCallVision.mockResolvedValueOnce(text);
+  },
+  mockReset: () => mockCallVision.mockReset(),
+};
 
 const fakeScan = {
   id: 'scan-1', filename: 'receipt.jpg', original_path: '/tmp/receipt.jpg',
@@ -160,6 +166,12 @@ describe('scanService', () => {
 
   describe('confirmDocuments', () => {
     it('creates transactions and links them to documents', async () => {
+      // Ownership pre-checks: scan, account, category
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'scan-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+        .mockResolvedValueOnce({ rows: [{ id: 'cat-1' }] });
+
       getClientMock.mockResolvedValue(mockClient);
 
       mockClient.query

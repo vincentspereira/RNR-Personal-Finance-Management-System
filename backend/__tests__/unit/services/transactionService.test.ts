@@ -122,7 +122,10 @@ describe('transactionService', () => {
 
   describe('createTransaction', () => {
     it('creates a transaction and returns it', async () => {
-      queryMock.mockResolvedValue({ rows: [mockTxn] });
+      // First call: validateAccountExists ownership check
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })
+        .mockResolvedValueOnce({ rows: [mockTxn] });
 
       const result = await txnService.createTransaction(userId, {
         account_id: 'acc-1', type: 'expense' as const, amount: 50,
@@ -130,24 +133,35 @@ describe('transactionService', () => {
       });
 
       expect(result).toEqual(mockTxn);
-      expect(queryMock).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO transactions'),
-        expect.arrayContaining(['acc-1', null, 'expense', 50])
-      );
+      const insertCall = queryMock.mock.calls[1];
+      expect(insertCall[0]).toMatch(/INSERT INTO transactions/);
+      expect(insertCall[1]).toEqual(expect.arrayContaining(['acc-1', null, 'expense', 50]));
     });
 
     it('sets defaults for optional fields', async () => {
-      queryMock.mockResolvedValue({ rows: [mockTxn] });
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] })  // validateAccountExists
+        .mockResolvedValueOnce({ rows: [mockTxn] });          // INSERT
 
       await txnService.createTransaction(userId, {
         account_id: 'acc-1', type: 'expense' as const, amount: 100,
         transaction_date: '2026-01-01',
       });
 
-      const params = queryMock.mock.calls[0][1];
+      const params = queryMock.mock.calls[1][1];
       expect(params[5]).toBe('USD');
       expect(params[11]).toBe(false);
       expect(params[13]).toBe('manual');
+    });
+
+    it('rejects creation when account does not belong to user (cross-tenant)', async () => {
+      queryMock.mockResolvedValueOnce({ rows: [] }); // ownership check returns nothing
+      await expect(
+        txnService.createTransaction(userId, {
+          account_id: 'foreign-acc', type: 'expense' as const, amount: 50,
+          transaction_date: '2026-01-15',
+        })
+      ).rejects.toMatchObject({ statusCode: 404, message: 'Account not found' });
     });
   });
 
@@ -185,6 +199,8 @@ describe('transactionService', () => {
 
   describe('bulkCreateTransactions', () => {
     it('creates multiple transactions in a transaction', async () => {
+      // ownership pre-checks
+      queryMock.mockResolvedValueOnce({ rows: [{ id: 'acc-1' }] });
       getClientMock.mockResolvedValue(mockClient);
       mockClient.query.mockResolvedValue({ rows: [mockTxn] });
 
@@ -194,17 +210,20 @@ describe('transactionService', () => {
       ];
 
       const result = await txnService.bulkCreateTransactions(userId, inputs);
-      expect(result).toHaveLength(2);
+      expect(result.created).toHaveLength(2);
+      expect(result.skipped).toHaveLength(0);
       expect(mockClient.query).toHaveBeenCalledWith('BEGIN');
       expect(mockClient.query).toHaveBeenCalledWith('COMMIT');
       expect(mockClient.release).toHaveBeenCalled();
     });
 
     it('rolls back on error', async () => {
+      // ownership pre-check passes
+      queryMock.mockResolvedValueOnce({ rows: [{ id: 'a' }] });
       getClientMock.mockResolvedValue(mockClient);
       mockClient.query
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('DB error'));
+        .mockResolvedValueOnce(undefined) // BEGIN
+        .mockRejectedValueOnce(new Error('DB error')); // first INSERT fails
 
       await expect(
         txnService.bulkCreateTransactions(userId, [
@@ -214,6 +233,15 @@ describe('transactionService', () => {
 
       expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
       expect(mockClient.release).toHaveBeenCalled();
+    });
+
+    it('rejects when any account is not owned by the user', async () => {
+      queryMock.mockResolvedValueOnce({ rows: [] }); // no rows = none owned
+      await expect(
+        txnService.bulkCreateTransactions(userId, [
+          { account_id: 'foreign', type: 'expense' as const, amount: 10, transaction_date: '2026-01-01' },
+        ])
+      ).rejects.toMatchObject({ statusCode: 404 });
     });
   });
 

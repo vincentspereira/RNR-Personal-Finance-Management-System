@@ -94,4 +94,18 @@ export async function convertToBaseCurrency(
   return result.converted;
 }
 
+/**
+ * Lightweight helper used by transferService — returns the converted amount
+ * and the rate used. Falls back to 1.0 if both currencies match.
+ */
+export async function convertAmount(
+  amount: number,
+  from: string,
+  to: string
+): Promise<{ amount: number; rate: number }> {
+  if (from === to) return { amount, rate: 1 };
+  const res = await convertCurrency(amount, from, to);
+  return { amount: res.converted, rate: res.rate };
+}
+
 export { SUPPORTED_CURRENCIES };

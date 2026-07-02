@@ -1,20 +1,21 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { ThemeProvider } from './hooks/useTheme';
 import Sidebar from './components/Sidebar';
-import Dashboard from './pages/Dashboard';
-import Transactions from './pages/Transactions';
-import Accounts from './pages/Accounts';
-import ScanPage from './pages/Scan';
-import Analytics from './pages/Analytics';
-import Reports from './pages/Reports';
-import Budgets from './pages/Budgets';
-import SavingsGoals from './pages/SavingsGoals';
-import Settings from './pages/Settings';
-import Login from './pages/Login';
-import { LoadingSpinner } from './components/Common';
+import { LoadingSpinner, ErrorBoundary } from './components/Common';
 import { FaBars } from 'react-icons/fa';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Transactions = lazy(() => import('./pages/Transactions'));
+const Accounts = lazy(() => import('./pages/Accounts'));
+const ScanPage = lazy(() => import('./pages/Scan'));
+const Analytics = lazy(() => import('./pages/Analytics'));
+const Reports = lazy(() => import('./pages/Reports'));
+const Budgets = lazy(() => import('./pages/Budgets'));
+const SavingsGoals = lazy(() => import('./pages/SavingsGoals'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Login = lazy(() => import('./pages/Login'));
 
 function ProtectedLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -28,25 +29,31 @@ function ProtectedLayout() {
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
       />
-      <main className="flex-1 overflow-y-auto p-4 md:p-6">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6" id="main-content">
         <button
-          className="md:hidden fixed top-3 left-3 z-30 bg-navy-800 border border-navy-700 text-gray-300 p-2 rounded-lg"
+          type="button"
+          className="md:hidden fixed top-3 left-3 z-30 bg-secondary border border-default text-primary p-2 rounded-lg"
           onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation menu"
         >
-          <FaBars />
+          <FaBars aria-hidden="true" />
         </button>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/transactions" element={<Transactions />} />
-          <Route path="/accounts" element={<Accounts />} />
-          <Route path="/scan" element={<ScanPage />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/budgets" element={<Budgets />} />
-          <Route path="/savings-goals" element={<SavingsGoals />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
+        <ErrorBoundary>
+          <Suspense fallback={<LoadingSpinner />}>
+            <Routes>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/transactions" element={<Transactions />} />
+              <Route path="/accounts" element={<Accounts />} />
+              <Route path="/scan" element={<ScanPage />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/budgets" element={<Budgets />} />
+              <Route path="/savings-goals" element={<SavingsGoals />} />
+              <Route path="/settings" element={<Settings />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </main>
     </div>
   );
@@ -57,17 +64,19 @@ function AppRoutes() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0f172a]">
+      <div className="min-h-screen flex items-center justify-center bg-primary">
         <LoadingSpinner />
       </div>
     );
   }
 
   return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
-      <Route path="/*" element={user ? <ProtectedLayout /> : <Navigate to="/login" replace />} />
-    </Routes>
+    <Suspense fallback={<LoadingSpinner />}>
+      <Routes>
+        <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <Login />} />
+        <Route path="/*" element={user ? <ProtectedLayout /> : <Navigate to="/login" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 

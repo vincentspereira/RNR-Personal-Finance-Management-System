@@ -84,6 +84,44 @@ export function TrendLineChart({ data, lines }) {
   );
 }
 
+export function NetWorthOverTimeChart({ data }) {
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <AreaChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+        <XAxis dataKey="month" stroke="#64748b" tick={{ fontSize: 12 }} />
+        <YAxis stroke="#64748b" tick={{ fontSize: 12 }} />
+        <Tooltip {...tooltipStyle} />
+        <Legend />
+        <Area
+          type="monotone"
+          dataKey="net_worth"
+          stroke="#3b82f6"
+          fill="#3b82f633"
+          name="Net Worth"
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+export function CashflowForecastChart({ data }) {
+  return (
+    <ResponsiveContainer width="100%" height={300}>
+      <LineChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+        <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 11 }} />
+        <YAxis stroke="#64748b" tick={{ fontSize: 12 }} />
+        <Tooltip {...tooltipStyle} />
+        <Legend />
+        <Line type="monotone" dataKey="projected_income" stroke="#22c55e" strokeDasharray="5 4" dot={false} name="Projected income" />
+        <Line type="monotone" dataKey="projected_expense" stroke="#ef4444" strokeDasharray="5 4" dot={false} name="Projected expense" />
+        <Line type="monotone" dataKey="projected_net" stroke="#3b82f6" strokeWidth={2} dot={false} name="Projected net" />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function TopMerchantsBarChart({ data }) {
   return (
     <ResponsiveContainer width="100%" height={300}>

@@ -1,4 +1,5 @@
 import { query } from '../db';
+import { validateCategoryExists } from '../utils/validators';
 
 export async function listBudgets(userId: string) {
   const result = await query(`
@@ -18,6 +19,7 @@ export async function createBudget(userId: string, data: {
   start_date: string;
   end_date?: string;
 }) {
+  await validateCategoryExists(data.category_id, userId);
   const result = await query(
     `INSERT INTO budgets (user_id, category_id, amount, period, start_date, end_date)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,

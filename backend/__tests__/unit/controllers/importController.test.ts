@@ -104,7 +104,7 @@ describe('importController', () => {
         transaction_date: '2026-01-15', description: 'Coffee',
       };
       (importService.mapRowToTransaction as jest.Mock).mockReturnValue(mappedTxn);
-      (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue([{ id: '1' }, { id: '2' }]);
+      (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue({ created: [{ id: '1' }, { id: '2' }], skipped: [] });
 
       await ctrl.importConfirm(req, res, mockNext);
 
@@ -134,7 +134,7 @@ describe('importController', () => {
       (importService.mapRowToTransaction as jest.Mock)
         .mockReturnValueOnce(validTxn)
         .mockReturnValueOnce(null);
-      (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue([{ id: '1' }]);
+      (txnService.bulkCreateTransactions as jest.Mock).mockResolvedValue({ created: [{ id: '1' }], skipped: [] });
 
       await ctrl.importConfirm(req, res, mockNext);
 

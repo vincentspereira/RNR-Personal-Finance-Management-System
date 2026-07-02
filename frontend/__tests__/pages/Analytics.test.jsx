@@ -9,6 +9,8 @@ vi.mock('../../src/api', () => ({
     trends: vi.fn(),
     topMerchants: vi.fn(),
     recurring: vi.fn(),
+    netWorthHistory: vi.fn(),
+    cashflowForecast: vi.fn(),
   },
 }));
 
@@ -35,6 +37,12 @@ const mockAnalyticsData = () => {
     data: [
       { description: 'Netflix', merchant_name: 'Netflix', avg_amount: 15.99, occurrence_count: 6 },
     ],
+  });
+  analyticsApi.netWorthHistory.mockResolvedValue({
+    data: [{ month: '2026-01', net_worth: '1000.00' }],
+  });
+  analyticsApi.cashflowForecast.mockResolvedValue({
+    data: [],
   });
 };
 
@@ -103,6 +111,8 @@ describe('Analytics', () => {
     analyticsApi.trends.mockResolvedValue({ data: [] });
     analyticsApi.topMerchants.mockResolvedValue({ data: [] });
     analyticsApi.recurring.mockResolvedValue({ data: [] });
+    analyticsApi.netWorthHistory.mockResolvedValue({ data: [] });
+    analyticsApi.cashflowForecast.mockResolvedValue({ data: [] });
     renderAnalytics();
     await waitFor(() => {
       expect(screen.getByText(/No data for this period/)).toBeInTheDocument();
@@ -130,6 +140,8 @@ describe('Analytics', () => {
     analyticsApi.trends.mockRejectedValue(new Error('API error'));
     analyticsApi.topMerchants.mockRejectedValue(new Error('API error'));
     analyticsApi.recurring.mockRejectedValue(new Error('API error'));
+    analyticsApi.netWorthHistory.mockRejectedValue(new Error('API error'));
+    analyticsApi.cashflowForecast.mockRejectedValue(new Error('API error'));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     renderAnalytics();
     await waitFor(() => expect(screen.getByText('Analytics')).toBeInTheDocument());

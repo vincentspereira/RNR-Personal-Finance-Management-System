@@ -1,23 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
 import sharp from 'sharp';
 import fs from 'fs';
-import path from 'path';
-import { query } from '../db';
-import { config } from '../config';
+import { query, getClient } from '../db';
+import { getVisionProvider } from './vision';
+import { validateAccountExists, validateCategoryExists, validateScanExists } from '../utils/validators';
 
-function getAnthropicClient() {
-  if (!config.anthropicApiKey || config.anthropicApiKey === 'sk-ant-placeholder') {
-    throw new Error('ANTHROPIC_API_KEY is not configured. Set it in your .env file.');
-  }
-  return new Anthropic({ apiKey: config.anthropicApiKey });
-}
-
-function getVisionProvider(): 'anthropic' | 'zai' {
-  if (config.visionProvider === 'zai' && config.zaiApiKey) return 'zai';
-  if (config.anthropicApiKey && config.anthropicApiKey !== 'sk-ant-placeholder') return 'anthropic';
-  if (config.zaiApiKey) return 'zai';
-  throw new Error('No vision API key configured. Set ANTHROPIC_API_KEY or ZAI_API_KEY in your .env file.');
-}
 
 const EXTRACTION_SYSTEM_PROMPT = `You are an expert financial document parser. Extract ALL financial information from this invoice/receipt/bill image with maximum accuracy.
 
@@ -86,70 +72,7 @@ function imageToBase64(buffer: Buffer): string {
 }
 
 async function callVision(base64Image: string, prompt: string): Promise<string> {
-  const provider = getVisionProvider();
-
-  if (provider === 'zai') {
-    return callZaiVision(base64Image, prompt);
-  }
-  return callAnthropicVision(base64Image, prompt);
-}
-
-async function callAnthropicVision(base64Image: string, prompt: string): Promise<string> {
-  const client = getAnthropicClient();
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: 'image/jpeg',
-              data: base64Image,
-            },
-          },
-          { type: 'text', text: prompt },
-        ],
-      },
-    ],
-  });
-  const textBlock = response.content.find((block: any) => block.type === 'text');
-  return (textBlock as any)?.text || '';
-}
-
-async function callZaiVision(base64Image: string, prompt: string): Promise<string> {
-  const dataUrl = `data:image/jpeg;base64,${base64Image}`;
-  const response = await fetch('https://api.z.ai/api/paas/v4/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${config.zaiApiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'glm-5v-turbo',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: dataUrl } },
-            { type: 'text', text: prompt },
-          ],
-        },
-      ],
-      max_tokens: 4096,
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Z.ai API error: ${response.status} - ${err}`);
-  }
-
-  const result = await response.json() as any;
-  return result.choices?.[0]?.message?.content || '';
+  return getVisionProvider().callVision(base64Image, prompt);
 }
 
 function parseJsonResponse(text: string): any {
@@ -379,7 +302,15 @@ export async function confirmDocuments(userId: string, scanId: string, documents
   merchantName: string;
   transactionDate: string;
 }>) {
-  const { getClient } = await import('../db');
+  // P0-3: Validate scan + accounts + categories all belong to this user
+  await validateScanExists(scanId, userId);
+  const accountIds = Array.from(new Set(documents.map(d => d.accountId).filter(Boolean)));
+  const categoryIds = Array.from(new Set(documents.map(d => d.categoryId).filter(Boolean)));
+  await Promise.all([
+    ...accountIds.map(id => validateAccountExists(id, userId)),
+    ...categoryIds.map(id => validateCategoryExists(id, userId)),
+  ]);
+
   const client = await getClient();
 
   try {

@@ -1,5 +1,5 @@
-# fly.toml - Deploy with: fly deploy
-# Prerequisites: fly auth login, fly launch
+# fly.toml — Deploy with: fly deploy
+# See docs/DEPLOY.md for first-time setup.
 
 app = "pfms"
 primary_region = "iad"
@@ -11,13 +11,17 @@ primary_region = "iad"
   PORT = "5000"
   NODE_ENV = "production"
   VISION_PROVIDER = "zai"
+  # Migrations run separately via `fly ssh console -C 'npm run migrate:built'`
+  # See docs/DEPLOY.md.
+  RUN_MIGRATIONS_ON_BOOT = "false"
 
 [http_service]
   internal_port = 5000
   force_https = true
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  # min_machines_running = 1 so the cron-based scheduler actually runs.
+  min_machines_running = 1
 
 [[http_service.checks]]
   grace_period = "30s"

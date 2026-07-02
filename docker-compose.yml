@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: pfms
       POSTGRES_USER: pfms
-      POSTGRES_PASSWORD: pfms_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pfms_password}
     ports:
       - "5433:5432"
     volumes:
@@ -13,7 +13,20 @@ services:
       test: ["CMD-SHELL", "pg_isready -U pfms"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  # Runs migrations once at startup and exits. The API container depends on
+  # this completing so two API replicas never race on ALTER TABLE.
+  migrate:
+    build: ./backend
+    command: ["node", "dist/models/runMigrations.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pfms:${POSTGRES_PASSWORD:-pfms_password}@postgres:5432/pfms
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   backend:
     build: ./backend
@@ -22,27 +35,42 @@ services:
     environment:
       PORT: 5000
       NODE_ENV: production
-      DATABASE_URL: postgresql://pfms:pfms_password@postgres:5432/pfms
+      DATABASE_URL: postgresql://pfms:${POSTGRES_PASSWORD:-pfms_password}@postgres:5432/pfms
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ZAI_API_KEY: ${ZAI_API_KEY:-}
       VISION_PROVIDER: ${VISION_PROVIDER:-zai}
       UPLOAD_DIR: /app/uploads
       MAX_FILE_SIZE_MB: 20
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
-      JWT_SECRET: ${JWT_SECRET:-pfms-prod-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required - generate with `openssl rand -hex 64`}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      RUN_MIGRATIONS_ON_BOOT: "false"
     volumes:
       - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://127.0.0.1:5000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   frontend:
     build: ./frontend
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:

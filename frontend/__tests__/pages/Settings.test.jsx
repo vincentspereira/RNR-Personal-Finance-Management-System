@@ -262,8 +262,8 @@ describe('Settings', () => {
     renderSettings();
     await waitFor(() => expect(screen.getByText('API Key')).toBeInTheDocument());
     fireEvent.click(screen.getByText('API Key'));
-    await waitFor(() => expect(screen.getByText('Anthropic API Key')).toBeInTheDocument());
-    expect(screen.getByPlaceholderText('sk-ant-...')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Vision API Key/)).toBeInTheDocument());
+    expect(screen.getByPlaceholderText('zai-...')).toBeInTheDocument();
   });
 
   it('opens add account modal and creates account', async () => {
@@ -313,7 +313,9 @@ describe('Settings', () => {
     fireEvent.click(screen.getByText('categories'));
     await waitFor(() => expect(screen.getByText('Add Category')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Add Category'));
-    await waitFor(() => expect(screen.getByText('Create Category')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByPlaceholderText(/Hobbies/)).toBeInTheDocument());
+    // Submit button is now disabled when name is empty - fill it first.
+    fireEvent.change(screen.getByPlaceholderText(/Hobbies/), { target: { value: 'Test' } });
     fireEvent.click(screen.getByText('Create Category'));
     await waitFor(() => expect(categoriesApi.create).toHaveBeenCalled());
     const toast = await import('react-hot-toast');
@@ -329,6 +331,11 @@ describe('Settings', () => {
     await waitFor(() => expect(screen.getByText('Add Budget')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Add Budget'));
     await waitFor(() => expect(screen.getByPlaceholderText('500.00')).toBeInTheDocument());
+    // Select first expense category from the dropdown so submit isn't disabled.
+    const categorySelect = document.querySelector('#bud-cat');
+    if (categorySelect && categorySelect.options.length > 1) {
+      fireEvent.change(categorySelect, { target: { value: categorySelect.options[1].value } });
+    }
     fireEvent.change(screen.getByPlaceholderText('500.00'), { target: { value: '300' } });
     fireEvent.click(screen.getByText('Create Budget'));
     await waitFor(() => expect(budgetsApi.create).toHaveBeenCalled());
@@ -339,11 +346,11 @@ describe('Settings', () => {
     renderSettings();
     await waitFor(() => expect(screen.getByText('API Key')).toBeInTheDocument());
     fireEvent.click(screen.getByText('API Key'));
-    await waitFor(() => expect(screen.getByPlaceholderText('sk-ant-...')).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText('sk-ant-...'), { target: { value: 'test-key' } });
+    await waitFor(() => expect(screen.getByPlaceholderText('zai-...')).toBeInTheDocument());
+    fireEvent.change(screen.getByPlaceholderText('zai-...'), { target: { value: 'test-key' } });
     fireEvent.click(screen.getByText('Save API Key'));
     const toast = await import('react-hot-toast');
-    expect(toast.default.success).toHaveBeenCalledWith('API key updated (restart backend to apply)');
+    expect(toast.default.success).toHaveBeenCalledWith(expect.stringMatching(/ZAI_API_KEY/));
   });
 
   it('closes account modal on Cancel', async () => {

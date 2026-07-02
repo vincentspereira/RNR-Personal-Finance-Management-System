@@ -92,11 +92,24 @@ describe('analyticsService', () => {
       expect(result).toHaveLength(2);
     });
 
-    it('passes months parameter to query', async () => {
+    it('passes months parameter to query as parameterised value (not interpolated)', async () => {
       queryMock.mockResolvedValue({ rows: [] });
       await analyticsService.getTrends(userId, 6);
       const sql = queryMock.mock.calls[0][0];
-      expect(sql).toContain('5');
+      const params = queryMock.mock.calls[0][1];
+      // Parameterised — the SQL itself does NOT contain a literal months value
+      expect(sql).toMatch(/\$1::int/);
+      expect(params[0]).toBe(6);
+    });
+
+    it('clamps months to [1, 60]', async () => {
+      queryMock.mockResolvedValue({ rows: [] });
+      await analyticsService.getTrends(userId, -99999);
+      expect(queryMock.mock.calls[0][1][0]).toBe(1);
+      queryMock.mockReset();
+      queryMock.mockResolvedValue({ rows: [] });
+      await analyticsService.getTrends(userId, 99999);
+      expect(queryMock.mock.calls[0][1][0]).toBe(60);
     });
   });
 

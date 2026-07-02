@@ -86,19 +86,17 @@ export async function importConfirm(req: AuthRequest, res: Response, next: NextF
       throw createError(400, 'No valid transactions found. Check your column mappings.');
     }
 
-    const created = await bulkCreateTransactions(req.user!.id, transactions.map(t => ({
+    const { created, skipped } = await bulkCreateTransactions(req.user!.id, transactions.map(t => ({
       ...t,
       source: 'imported' as const,
       import_hash: computeImportHash(t),
     })));
 
-    const duplicateCount = transactions.length - created.length;
-
     res.status(201).json({
       success: true,
       data: {
         imported: created.length,
-        duplicates: duplicateCount,
+        duplicates: skipped.length,
         skipped: errors.length,
         errors: errors.slice(0, 20),
       },

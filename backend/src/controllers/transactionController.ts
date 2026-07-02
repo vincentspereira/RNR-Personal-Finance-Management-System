@@ -3,6 +3,14 @@ import * as txnService from '../services/transactionService';
 import { createError } from '../middleware/errorHandler';
 import { AuthRequest } from '../middleware/auth';
 
+function escapeCSV(value: any): string {
+  const str = value === null || value === undefined ? '' : String(value);
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 export async function listTransactions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const result = await txnService.listTransactions(req.user!.id, {
@@ -56,8 +64,12 @@ export async function deleteTransaction(req: AuthRequest, res: Response, next: N
 
 export async function bulkCreateTransactions(req: AuthRequest, res: Response, next: NextFunction) {
   try {
-    const txns = await txnService.bulkCreateTransactions(req.user!.id, req.body.transactions);
-    res.status(201).json({ success: true, data: txns, meta: { count: txns.length } });
+    const { created, skipped } = await txnService.bulkCreateTransactions(req.user!.id, req.body.transactions);
+    res.status(201).json({
+      success: true,
+      data: created,
+      meta: { count: created.length, skipped: skipped.length, total: created.length + skipped.length },
+    });
   } catch (err) { next(err); }
 }
 
@@ -71,16 +83,14 @@ export async function exportTransactions(req: AuthRequest, res: Response, next: 
 
     if (req.query.format === 'csv') {
       const headers = ['id', 'type', 'amount', 'currency', 'description', 'merchant_name', 'transaction_date', 'category_name', 'account_name'];
-      const csvRows = [headers.join(',')];
+      const csvRows = [headers.map(escapeCSV).join(',')];
       for (const row of rows) {
-        csvRows.push(headers.map(h => {
-          const val = (row as any)[h];
-          return typeof val === 'string' && val.includes(',') ? `"${val}"` : val || '';
-        }).join(','));
+        csvRows.push(headers.map(h => escapeCSV((row as any)[h])).join(','));
       }
-      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename=transactions.csv');
-      res.send(csvRows.join('\n'));
+      // Use CRLF per RFC 4180 to satisfy strict consumers (Excel/Numbers)
+      res.send(csvRows.join('\r\n'));
     } else {
       res.json({ success: true, data: rows });
     }

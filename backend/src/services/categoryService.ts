@@ -1,4 +1,5 @@
 import { query } from '../db';
+import { validateCategoryExists } from '../utils/validators';
 
 export async function listCategories(userId: string) {
   const result = await query(`
@@ -32,6 +33,10 @@ export async function createCategory(userId: string, data: {
   icon?: string;
   parent_id?: string;
 }) {
+  if (data.parent_id) {
+    await validateCategoryExists(data.parent_id, userId);
+    // Prevent self-cycle by virtue of parent_id being a different row
+  }
   const result = await query(
     `INSERT INTO categories (user_id, name, type, color, icon, parent_id)
      VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,

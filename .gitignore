@@ -55,3 +55,7 @@ backups/
 pgdata/
 *.sqlite
 *.sqlite3
+
+# Local tooling artifacts (Codex CLI config, generated knowledge graphs)
+.codex/
+graphify-out/

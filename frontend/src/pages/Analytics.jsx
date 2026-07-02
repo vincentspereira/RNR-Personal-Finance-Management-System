@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react';
-import { analyticsApi, categoriesApi } from '../api';
-import { PageHeader, LoadingSpinner } from '../components/Common';
-import { IncomeExpenseBarChart, ExpenseDonutChart, TrendLineChart, TopMerchantsBarChart } from '../components/Charts';
-import { FaChartLine } from 'react-icons/fa';
+import { analyticsApi } from '../api';
+import { PageHeader, LoadingSpinner, ErrorBoundary } from '../components/Common';
+import {
+  IncomeExpenseBarChart,
+  ExpenseDonutChart,
+  TopMerchantsBarChart,
+  NetWorthOverTimeChart,
+  CashflowForecastChart,
+} from '../components/Charts';
 
 const PERIODS = [
   { label: 'This Month', value: 'this_month' },
@@ -49,22 +54,28 @@ export default function Analytics() {
   const [trends, setTrends] = useState([]);
   const [merchants, setMerchants] = useState([]);
   const [recurring, setRecurring] = useState([]);
+  const [netWorthHistory, setNetWorthHistory] = useState([]);
+  const [forecast, setForecast] = useState([]);
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       const { startDate, endDate } = getDateRange(period);
       try {
-        const [catRes, trendRes, merchantRes, recurringRes] = await Promise.all([
+        const [catRes, trendRes, merchantRes, recurringRes, nwRes, fcRes] = await Promise.all([
           analyticsApi.byCategory({ startDate, endDate, type: 'expense' }),
           analyticsApi.trends({ months: 12 }),
           analyticsApi.topMerchants({ startDate, endDate }),
           analyticsApi.recurring(),
+          analyticsApi.netWorthHistory({ months: 12 }),
+          analyticsApi.cashflowForecast({ days: 90 }),
         ]);
         setByCategory(catRes.data || []);
         setTrends(trendRes.data || []);
         setMerchants(merchantRes.data || []);
         setRecurring(recurringRes.data || []);
+        setNetWorthHistory(nwRes.data || []);
+        setForecast(fcRes.data || []);
       } catch (err) {
         console.error('Analytics error:', err);
       } finally {
@@ -79,12 +90,13 @@ export default function Analytics() {
       <PageHeader
         title="Analytics"
         actions={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap" role="group" aria-label="Date range">
             {PERIODS.map(p => (
               <button
                 key={p.value}
                 className={`text-sm px-3 py-1.5 rounded-lg ${period === p.value ? 'bg-accent text-white' : 'btn-secondary'}`}
                 onClick={() => setPeriod(p.value)}
+                aria-pressed={period === p.value}
               >
                 {p.label}
               </button>
@@ -95,85 +107,123 @@ export default function Analytics() {
 
       {loading ? <LoadingSpinner /> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Spending Trends by Category */}
-          <div className="card">
-            <h3 className="text-sm font-medium text-gray-400 mb-4">Income vs Expense Trends</h3>
-            <IncomeExpenseBarChart data={trends} />
-          </div>
-
-          {/* Category Breakdown */}
-          <div className="card">
-            <h3 className="text-sm font-medium text-gray-400 mb-4">Expense Breakdown by Category</h3>
-            {byCategory.length > 0 ? (
-              <ExpenseDonutChart data={byCategory.map(c => ({ name: c.name, total: parseFloat(c.total) }))} />
-            ) : (
-              <p className="text-gray-500 text-center py-12">No data for this period</p>
-            )}
-          </div>
-
-          {/* Top Merchants */}
-          <div className="card">
-            <h3 className="text-sm font-medium text-gray-400 mb-4">Top Merchants</h3>
-            {merchants.length > 0 ? (
-              <TopMerchantsBarChart data={merchants.map(m => ({
-                merchant_name: m.merchant_name,
-                total_spent: parseFloat(m.total_spent),
-              }))} />
-            ) : (
-              <p className="text-gray-500 text-center py-12">No merchant data</p>
-            )}
-          </div>
-
-          {/* Category Details Table */}
-          <div className="card">
-            <h3 className="text-sm font-medium text-gray-400 mb-4">Category Spending Details</h3>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              {byCategory.map((cat) => (
-                <div key={cat.id} className="flex items-center justify-between py-2 border-b border-navy-700/50">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
-                    <span className="text-sm text-gray-300">{cat.name}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-sm font-medium">${parseFloat(cat.total).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                    <span className="text-xs text-gray-500 ml-2">({cat.transaction_count} txns)</span>
-                  </div>
-                </div>
-              ))}
-              {byCategory.length === 0 && <p className="text-gray-500 text-center py-8">No categories</p>}
+          <ErrorBoundary>
+            <div className="card lg:col-span-2">
+              <h3 className="text-sm font-medium text-muted mb-4">Net Worth Over Time (last 12 months)</h3>
+              {netWorthHistory.length > 0 ? (
+                <NetWorthOverTimeChart
+                  data={netWorthHistory.map(r => ({ month: r.month, net_worth: parseFloat(r.net_worth) }))}
+                />
+              ) : (
+                <p className="text-muted text-center py-12">Not enough history yet</p>
+              )}
             </div>
-          </div>
+          </ErrorBoundary>
 
-          {/* Recurring Transactions */}
-          <div className="card lg:col-span-2">
-            <h3 className="text-sm font-medium text-gray-400 mb-4">Recurring Transactions</h3>
-            {recurring.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-navy-700">
-                      <th className="text-left py-2 px-3 text-gray-400">Description/Merchant</th>
-                      <th className="text-left py-2 px-3 text-gray-400">Avg Amount</th>
-                      <th className="text-left py-2 px-3 text-gray-400">Occurrences</th>
-                      <th className="text-left py-2 px-3 text-gray-400">Est. Monthly</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recurring.map((r, i) => (
-                      <tr key={i} className="border-b border-navy-700/50">
-                        <td className="py-2 px-3">{r.description || r.merchant_name || '—'}</td>
-                        <td className="py-2 px-3">${parseFloat(r.avg_amount).toFixed(2)}</td>
-                        <td className="py-2 px-3">{r.occurrence_count}</td>
-                        <td className="py-2 px-3 text-income">${(parseFloat(r.avg_amount) * r.occurrence_count / 12).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <ErrorBoundary>
+            <div className="card lg:col-span-2">
+              <h3 className="text-sm font-medium text-muted mb-4">Cash-flow Forecast (next 90 days)</h3>
+              {forecast.length > 0 ? (
+                <CashflowForecastChart
+                  data={forecast.map(r => ({
+                    date: r.date,
+                    projected_income: parseFloat(r.projected_income),
+                    projected_expense: parseFloat(r.projected_expense),
+                    projected_net: parseFloat(r.projected_net),
+                  }))}
+                />
+              ) : (
+                <p className="text-muted text-center py-12">
+                  Detect more recurring transactions to enable forecasting
+                </p>
+              )}
+            </div>
+          </ErrorBoundary>
+
+          <ErrorBoundary>
+            <div className="card">
+              <h3 className="text-sm font-medium text-muted mb-4">Income vs Expense Trends</h3>
+              <IncomeExpenseBarChart data={trends} />
+            </div>
+          </ErrorBoundary>
+
+          <ErrorBoundary>
+            <div className="card">
+              <h3 className="text-sm font-medium text-muted mb-4">Expense Breakdown by Category</h3>
+              {byCategory.length > 0 ? (
+                <ExpenseDonutChart data={byCategory.map(c => ({ name: c.name, total: parseFloat(c.total) }))} />
+              ) : (
+                <p className="text-muted text-center py-12">No data for this period</p>
+              )}
+            </div>
+          </ErrorBoundary>
+
+          <ErrorBoundary>
+            <div className="card">
+              <h3 className="text-sm font-medium text-muted mb-4">Top Merchants</h3>
+              {merchants.length > 0 ? (
+                <TopMerchantsBarChart data={merchants.map(m => ({
+                  merchant_name: m.merchant_name,
+                  total_spent: parseFloat(m.total_spent),
+                }))} />
+              ) : (
+                <p className="text-muted text-center py-12">No merchant data</p>
+              )}
+            </div>
+          </ErrorBoundary>
+
+          <ErrorBoundary>
+            <div className="card">
+              <h3 className="text-sm font-medium text-muted mb-4">Category Spending Details</h3>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {byCategory.map((cat) => (
+                  <div key={cat.id} className="flex items-center justify-between py-2 border-b border-default">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
+                      <span className="text-sm text-primary">{cat.name}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-medium">${parseFloat(cat.total).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      <span className="text-xs text-muted ml-2">({cat.transaction_count} txns)</span>
+                    </div>
+                  </div>
+                ))}
+                {byCategory.length === 0 && <p className="text-muted text-center py-8">No categories</p>}
               </div>
-            ) : (
-              <p className="text-gray-500 text-center py-8">Not enough data to detect recurring transactions</p>
-            )}
-          </div>
+            </div>
+          </ErrorBoundary>
+
+          <ErrorBoundary>
+            <div className="card lg:col-span-2">
+              <h3 className="text-sm font-medium text-muted mb-4">Recurring Transactions</h3>
+              {recurring.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-default">
+                        <th scope="col" className="text-left py-2 px-3 text-muted">Description/Merchant</th>
+                        <th scope="col" className="text-left py-2 px-3 text-muted">Avg Amount</th>
+                        <th scope="col" className="text-left py-2 px-3 text-muted">Occurrences</th>
+                        <th scope="col" className="text-left py-2 px-3 text-muted">Est. Monthly</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recurring.map((r, i) => (
+                        <tr key={i} className="border-b border-default">
+                          <td className="py-2 px-3">{r.description || r.merchant_name || '—'}</td>
+                          <td className="py-2 px-3">${parseFloat(r.avg_amount).toFixed(2)}</td>
+                          <td className="py-2 px-3">{r.occurrence_count}</td>
+                          <td className="py-2 px-3 text-income">${(parseFloat(r.avg_amount) * r.occurrence_count / 12).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-muted text-center py-8">Not enough data to detect recurring transactions</p>
+              )}
+            </div>
+          </ErrorBoundary>
         </div>
       )}
     </div>

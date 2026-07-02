@@ -89,7 +89,7 @@ describe('E2E: User creates account, category, transaction, then views analytics
     const txnRes = await request(app)
       .post('/api/transactions')
       .send({
-        account_id: 'acc-1', category_id: 'cat-1', type: 'expense',
+        account_id: '11111111-1111-1111-1111-111111111111', category_id: '22222222-2222-2222-2222-222222222222', type: 'expense',
         amount: 85.50, description: 'Weekly groceries', transaction_date: '2026-01-15',
       });
 
@@ -105,7 +105,7 @@ describe('E2E: User creates account, category, transaction, then views analytics
     const incomeRes = await request(app)
       .post('/api/transactions')
       .send({
-        account_id: 'acc-1', category_id: 'cat-2', type: 'income',
+        account_id: '11111111-1111-1111-1111-111111111111', category_id: '33333333-3333-3333-3333-333333333333', type: 'income',
         amount: 3000, description: 'Monthly salary', transaction_date: '2026-01-01',
       });
 

@@ -82,16 +82,19 @@ describe('errorHandler', () => {
     process.env.NODE_ENV = originalEnv;
   });
 
-  it('omits meta in production', () => {
+  it('does not leak stacks in production but includes requestId for support', () => {
     const originalEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
 
     const err = createError(400, 'Test');
     errorHandler(err, req, res, next);
 
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ meta: undefined })
-    );
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.meta).toBeDefined();
+    expect(payload.meta.stack).toBeUndefined();
+    // requestId is undefined here because we didn't run the requestId middleware,
+    // but the key shape is what matters.
+    expect('requestId' in payload.meta).toBe(true);
 
     process.env.NODE_ENV = originalEnv;
   });
