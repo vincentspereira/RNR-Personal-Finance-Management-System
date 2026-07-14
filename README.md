@@ -33,8 +33,8 @@ A full-stack personal finance tracker with AI-powered invoice scanning, built wi
 
 ```bash
 # 1. Clone
-git clone https://github.com/vincentspereira/Personal-Finance-Management-System.git
-cd Personal-Finance-Management-System/pfms
+git clone https://github.com/vincentspereira/RNR-Personal-Finance-Management-System.git
+cd RNR-Personal-Finance-Management-System
 
 # 2. Set up environment
 cp .env.example .env
@@ -52,8 +52,8 @@ Open **http://localhost** — backend runs on port 5000, frontend on port 80.
 # Prerequisites: Node.js 20+, PostgreSQL 16+
 
 # 1. Clone and install
-git clone https://github.com/vincentspereira/Personal-Finance-Management-System.git
-cd Personal-Finance-Management-System/pfms
+git clone https://github.com/vincentspereira/RNR-Personal-Finance-Management-System.git
+cd RNR-Personal-Finance-Management-System
 
 # 2. Set up database
 psql -U postgres -c "CREATE USER pfms WITH PASSWORD 'pfms_password';"
@@ -74,9 +74,16 @@ npm run dev    # starts on port 5173
 
 Open **http://localhost:5173**
 
-### Option C: Windows one-click
+### Option C: One-click scripts
 
-```cmd
+```bash
+# Linux / macOS / WSL2
+./start.sh
+
+# Windows (PowerShell)
+.\start.ps1
+
+# Windows (cmd)
 start.bat
 ```
 
@@ -89,12 +96,12 @@ This sets up the database, builds the backend, and starts both servers.
 1. Fork/connect this repo to [render.com](https://render.com)
 2. Create a **PostgreSQL** database (Free plan: 90 days)
 3. Create a **Web Service** for the backend:
-   - Root Directory: `pfms/backend`
+   - Root Directory: `backend`
    - Build: `npm ci && npm run build`
    - Start: `node dist/server.js`
    - Set env vars: `DATABASE_URL`, `ZAI_API_KEY`, `JWT_SECRET`, `CORS_ORIGIN`
 4. Create a **Static Site** for the frontend:
-   - Root Directory: `pfms/frontend`
+   - Root Directory: `frontend`
    - Build: `npm ci && npm run build`
    - Publish: `dist`
    - Add rewrite rule: `/* → /index.html`
@@ -258,7 +265,7 @@ npm run test:ui           # Vitest UI
 ## Project Structure
 
 ```
-pfms/
+RNR-Personal-Finance-Management-System/
 ├── backend/
 │   ├── src/
 │   │   ├── routes/          # Express routes
@@ -269,6 +276,7 @@ pfms/
 │   │   ├── config.ts
 │   │   ├── db.ts
 │   │   └── server.ts
+│   ├── migrations/          # Numbered SQL migrations (001_init.sql ...)
 │   ├── Dockerfile
 │   └── package.json
 ├── frontend/
@@ -283,5 +291,6 @@ pfms/
 ├── docker-compose.yml
 ├── render.yaml
 ├── fly.toml
+├── start.sh / start.bat / start.ps1
 └── README.md
 ```
